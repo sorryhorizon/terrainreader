@@ -24,9 +24,16 @@ def find_tile_zip(tile_name, search_dir):
     files = glob.glob(pattern, recursive=True)
     # Filter out Mac OS metadata files (._*)
     files = [f for f in files if not os.path.basename(f).startswith('._')]
-    if files:
-        return files[0]
-    return None
+    
+    if not files:
+        return None
+
+    # Prioritize .hgt.zip files (elevation data) over others
+    hgt_files = [f for f in files if '.hgt.zip' in f.lower()]
+    if hgt_files:
+        return hgt_files[0]
+        
+    return files[0]
 
 def main():
     parser = argparse.ArgumentParser(description="Convert SRTM terrain data to Shapefile.")
@@ -61,10 +68,17 @@ def main():
                 try:
                     with zipfile.ZipFile(zip_path, 'r') as z:
                         all_files = z.namelist()
-                        # Find .hgt, .tif, or .num
-                        candidates = [f for f in all_files if f.endswith(('.hgt', '.tif', '.num'))]
+                        # Find .hgt or .tif (Ignore .num metadata files)
+                        candidates = [f for f in all_files if f.endswith(('.hgt', '.tif'))]
                         candidates = [f for f in candidates if not os.path.basename(f).startswith('._')]
                         
+                        # Check for .num files to warn user
+                        num_files = [f for f in all_files if f.endswith('.num')]
+                        if not candidates and num_files:
+                            print(f"  ERROR: Found metadata file (.num) but NO elevation data (.hgt/.tif) in {zip_path}.")
+                            print("  Please download 'SRTMGL1' (Height) data, not 'SRTMGL1N' (Number/Source) data.")
+                            continue
+
                         if candidates:
                             target_file = candidates[0]
                             # Extract to temp dir
@@ -74,15 +88,6 @@ def main():
                             # We need to handle the fact that extract might recreate dirs
                             # z.extract extracts full path.
                             extracted_path = z.extract(target_file, temp_dir)
-                            
-                            # If .num, rename to .hgt so rasterio recognizes it as SRTM
-                            if extracted_path.endswith('.num'):
-                                new_path = extracted_path[:-4] + ".hgt"
-                                # Rename
-                                if os.path.exists(new_path):
-                                    os.remove(new_path)
-                                os.rename(extracted_path, new_path)
-                                extracted_path = new_path
                             
                             src_files_to_mosaic.append(extracted_path)
                             print(f"  Extracted to: {extracted_path}")

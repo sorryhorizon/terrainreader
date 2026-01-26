@@ -1,14 +1,16 @@
 # Terrain Reader Project
 
-This tool converts SRTM terrain data (.zip/.hgt) into Shapefile (.shp) format.
+This tool converts SRTM terrain data (.hgt/.tif) into Shapefile (.shp) format. This project includes a complete workflow: data download guide, terrain conversion, and data verification & visualization.
 
 ## Features
+
 - **Automatic Search**: Recursively searches for terrain data tiles in the `earthdata` directory.
+- **Smart Filtering**: Prioritizes `.hgt.zip` files (elevation data) and automatically ignores useless metadata files (like `.num`).
 - **Smart Mosaicking**: Supports cross-tile (Mosaic) stitching to handle data spanning multiple terrain files.
 - **Range Clipping**: Precisely clips data based on a specified latitude/longitude bounding box.
 - **Downsampling**: Supports a custom downsampling step (`Step`) to effectively control output file size.
 - **Standard Format**: Outputs Point type Shapefiles with EPSG:4326 coordinate system, including the `.prj` projection file.
-- **Format Compatibility**: Automatically renames `.num` files to `.hgt` for recognition by GDAL/Rasterio.
+- **Data Verification**: Provides `verify_terrain.py` script to generate terrain heatmaps and statistical extremes for quick data quality verification.
 
 ## Prerequisites
 
@@ -19,79 +21,100 @@ pip install -r requirements.txt
 ```
 *(Note: This project requires `numpy<2` for compatibility with geopandas)*
 
-## Data Preparation
+## Project Directory Structure
 
-Please place SRTM terrain data (usually `.zip` archives) into the `earthdata` folder in the project root directory.
-- Directory structure example:
-  ```
-  terrainreader/
-  ├── earthdata/
-  │   ├── SRTM_Tile_1.zip
-  │   └── subfolder/
-  │       └── SRTM_Tile_2.zip
-  ├── output/
-  ├── terrain_converter.py
-  └── requirements.txt
-  ```
+```
+terrainreader/
+├── earthdata/          # Stores downloaded SRTM terrain data (.zip)
+│   ├── N30E120.SRTMGL1.hgt.zip
+│   └── ...
+├── output/             # Stores generated Shapefiles and preview images
+│   └── N30E120_N32E123/
+│       ├── terrain.shp
+│       ├── terrain_preview.png
+│       └── ...
+├── terrain_converter.py # Core conversion script
+├── verify_terrain.py    # Verification and visualization script
+├── requirements.txt     # Project dependencies
+└── README.md            # Project documentation
+```
+
+## Data Acquisition (Earthdata Guide)
+
+This project recommends using SRTM GL1 (30-meter resolution) data provided by NASA Earthdata.
+
+1.  Visit [NASA Earthdata Search](https://search.earthdata.nasa.gov/search).
+2.  Search for **"SRTMGL1"** (SRTM GL1 Global 1 arc second).
+3.  **Filter Range**:
+    *   Click the rectangle tool on the top left to select your area of interest on the map (e.g., Shanghai or Tibetan Plateau).
+    *   Or directly input coordinate ranges.
+4.  **Download Data**:
+    *   Click "Download All".
+    *   Select "Direct Download".
+    *   **Important**: Ensure the downloaded file list contains `.hgt.zip` files. Do NOT download only `.num` (Source Number) files, as they are data source IDs and contain no elevation info.
+5.  Place the downloaded `.zip` files into the `earthdata` folder in the project root (subfolders are supported).
 
 ## Usage
+
+### 1. Terrain Conversion (Convert)
 
 Run the `terrain_converter.py` script and specify the latitude/longitude range:
 
 ```bash
-python terrain_converter.py --min_lon <min_longitude> --max_lon <max_longitude> --min_lat <min_latitude> --max_lat <max_latitude> [--step <downsampling_step>]
+python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <min_lat> --max_lat <max_lat> [--step <step>]
 ```
 
-### Parameters
-- `--min_lon`: Minimum Longitude (e.g., 112.0)
-- `--max_lon`: Maximum Longitude (e.g., 116.0)
-- `--min_lat`: Minimum Latitude (e.g., 20.0)
-- `--max_lat`: Maximum Latitude (e.g., 24.0)
+**Parameters**:
+- `--min_lon` / `--max_lon`: Longitude range (e.g., 120.0 to 123.0)
+- `--min_lat` / `--max_lat`: Latitude range (e.g., 30.0 to 32.0)
 - `--step`: (Optional) Downsampling step, default is 1.
-  - `1`: Retain all original data points (maximum data volume).
-  - `10`: Take 1 point every 10x10 pixels (reduces data volume by 100x, suitable for large-area previews).
+  - `1`: Retain all original data points (approx. 30m precision), largest file size.
+  - `5`: Take 1 point every 5 points (approx. 150m precision), recommended for city-level scale.
+  - `20`: Take 1 point every 20 points (approx. 600m precision), recommended for province/continent scale.
 
-### Example Run
-
-For Shenzhen and surrounding areas (Longitude 112-116, Latitude 20-24):
-
+**Example Run (Shanghai)**:
 ```bash
-python terrain_converter.py --min_lon 112.0 --max_lon 116.0 --min_lat 20.0 --max_lat 24.0
+python terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
 
-To reduce data density (e.g., for testing):
+### 2. Data Verification & Visualization (Verify)
 
+Run the `verify_terrain.py` script to check if the generated Shapefile is correct and generate a preview image.
+
+**Auto Verification**: (Use the same coordinate parameters as conversion)
 ```bash
-python terrain_converter.py --min_lon 112.0 --max_lon 116.0 --min_lat 20.0 --max_lat 24.0 --step 10
+python verify_terrain.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32
 ```
+
+**Manual File Selection**:
+```bash
+python verify_terrain.py --file output/N30E120_N32E123/terrain.shp
+```
+
+**Output**:
+- Terminal displays elevation statistics (min, max, mean elevation).
+- Generates `terrain_preview.png` terrain heatmap in the same directory as the Shapefile.
 
 ## Output Results
 
-The converted files will be saved in the `output` directory, with folder names automatically generated based on the input latitude/longitude range.
+Converted files are saved in the `output` directory, with folder names automatically generated based on the input latitude/longitude range.
 
-Example: `output/N20E112_N24E116/terrain.shp`
+Example: `output/N30E120_N32E123/terrain.shp`
 
 The output Shapefile contains the following fields:
 - `geometry`: Point coordinates (Longitude, Latitude)
-- `elevation`: Elevation value
-- `city`: Area identifier name (e.g., "N20E112")
+- `elevation`: Elevation value (meters)
+- `city`: Area identifier name
 
 ## FAQ
-- **Git Status**: `earthdata` and `output` directories are usually configured to be ignored and should not be committed to version control.
-- **Missing .prj**: The script automatically specifies `EPSG:4326` and generates a `.prj` file to ensure the correct coordinate system.
 
-## Data Precision
+1.  **Elevation shows 0-200 but terrain is wrong?**
+    *   Reason: You may have downloaded `.num` (Source) data instead of `.hgt` (Elevation) data.
+    *   Solution: Please re-download SRTMGL1 data, ensuring the zip package contains `.hgt` files. The latest script automatically detects and warns about this issue.
 
-The precision of the generated terrain Shapefile depends primarily on two factors: **Source Data Resolution** and **Downsampling Parameter (`--step`)**.
+2.  **Generated file is too large (> 2GB)?**
+    *   Reason: Shapefile format has a 2GB size limit.
+    *   Solution: Increase the `--step` parameter (e.g., set to 5 or 10) to reduce data density.
 
-1.  **Source Data Resolution**
-    *   This project typically uses **SRTM GL1** data (filenames containing `SRTMGL1`).
-    *   **Horizontal Accuracy**: 1 arc-second.
-        *   Approximately **30 meters** at the equator.
-        *   Near Shenzhen latitude (approx. N22°), the east-west grid spacing is about **28 meters**, and north-south is about **30 meters**.
-    *   **Vertical Accuracy**: SRTM data is usually in integer meters. The absolute vertical error is typically within 16 meters (90% confidence).
-
-2.  **Output Point Density**
-    *   You can control the density of output points via the `--step` parameter when running the script.
-    *   `--step 1` (Default): Fully retains source data precision (one point every ~30 meters).
-    *   `--step 10`: Reduces precision by 10x (one point every ~300 meters), significantly reducing file size.
+3.  **Missing .prj file?**
+    *   Solution: The latest script fixes this issue and automatically generates a `.prj` file containing EPSG:4326 (WGS84) information.
