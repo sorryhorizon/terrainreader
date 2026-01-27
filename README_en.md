@@ -7,6 +7,13 @@ This tool converts SRTM terrain data (.hgt/.tif) into Shapefile (.shp) format. T
 - **Automatic Search**: Recursively searches for terrain data tiles in the `earthdata` directory.
 - **Smart Filtering**: Prioritizes `.hgt.zip` files (elevation data) and automatically ignores useless metadata files (like `.num`).
 - **Smart Mosaicking**: Supports cross-tile (Mosaic) stitching to handle data spanning multiple terrain files.
+- **Performance Optimization**:
+  - **Vectorized Calculation**: Uses `geopandas.points_from_xy` for >10x speedup in point generation.
+  - **Fast I/O**: Integrated `pyogrio` engine for high-speed Shapefile writing.
+  - **Parallel Decompression**: Uses Multiprocessing for parallel tile extraction.
+  - **Decompression Cache**: Automatically detects temp files to skip redundant unzipping.
+- **Progress Visualization**: Integrated `tqdm` for real-time progress bars with ETA.
+- **Cross-Platform**: Fully compatible with Windows and Linux (path handling, dependencies).
 - **Range Clipping**: Precisely clips data based on a specified latitude/longitude bounding box.
 - **Downsampling**: Supports a custom downsampling step (`Step`) to effectively control output file size.
 - **Standard Format**: Outputs Point type Shapefiles with EPSG:4326 coordinate system, including the `.prj` projection file.
@@ -74,8 +81,9 @@ python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <m
 
 **Example Run (Shanghai)**:
 ```bash
-python terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
+python -u terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
+*(Tip: Use `-u` flag to disable output buffering for real-time progress bars)*
 
 ### 2. Data Verification & Visualization (Verify)
 

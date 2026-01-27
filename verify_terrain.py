@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import sys
+import time
 
 def verify_and_plot(shp_path):
     print(f"Loading Shapefile: {shp_path}...")
@@ -73,6 +74,7 @@ def verify_and_plot(shp_path):
         return False
 
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description="Verify and visualize generated terrain Shapefile.")
     
     # Option 1: Direct file path
@@ -92,13 +94,46 @@ def main():
         target_shp = args.file
     elif args.min_lon is not None and args.max_lon is not None and args.min_lat is not None and args.max_lat is not None:
         # Construct path based on convention
-        folder_name = f"N{int(args.min_lat)}E{int(args.min_lon)}_N{int(args.max_lat)}E{int(args.max_lon)}"
+        # Check if decimals are present to determine folder naming convention
+        has_decimal = False
+        for val in [args.min_lon, args.max_lon, args.min_lat, args.max_lat]:
+             if val != int(val):
+                 has_decimal = True
+                 break
+        
+        if has_decimal:
+            # Use new decimal naming convention
+            def format_val(val, is_lat):
+                direction = ('N' if val >= 0 else 'S') if is_lat else ('E' if val >= 0 else 'W')
+                abs_val = abs(val)
+                return f"{direction}{int(abs_val)}" if abs_val.is_integer() else f"{direction}{abs_val:.2f}"
+            
+            min_str = f"{format_val(args.min_lat, True)}{format_val(args.min_lon, False)}"
+            max_str = f"{format_val(args.max_lat, True)}{format_val(args.max_lon, False)}"
+            folder_name = f"{min_str}_{max_str}"
+        else:
+            # Fallback to old integer naming for backward compatibility if needed, 
+            # OR better: use the new generic naming logic which handles integers fine too
+            # Let's stick to the logic in terrain_converter.py which is generic:
+            def format_val(val, is_lat):
+                direction = ('N' if val >= 0 else 'S') if is_lat else ('E' if val >= 0 else 'W')
+                abs_val = abs(val)
+                return f"{direction}{int(abs_val)}" if abs_val.is_integer() else f"{direction}{abs_val:.2f}"
+
+            min_str = f"{format_val(args.min_lat, True)}{format_val(args.min_lon, False)}"
+            max_str = f"{format_val(args.max_lat, True)}{format_val(args.max_lon, False)}"
+            folder_name = f"{min_str}_{max_str}"
+
         target_shp = os.path.join("output", folder_name, "terrain.shp")
     else:
         print("Usage Error: Please provide either --file OR (--min_lon, --max_lon, --min_lat, --max_lat)")
         sys.exit(1)
         
     verify_and_plot(target_shp)
+    
+    end_time = time.time()
+    duration = end_time - start_time
+    print(f"Verification done. Total time: {duration:.2f} seconds.")
 
 if __name__ == "__main__":
     main()

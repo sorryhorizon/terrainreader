@@ -1,5 +1,14 @@
+# Core spatial libraries
 geopandas
 rasterio
 shapely
 numpy<2
+
+# Visualization
 matplotlib
+tqdm
+
+# Performance acceleration (I/O & Compute)
+pyogrio
+numexpr>=2.10.2   # Silences pandas performance warnings
+bottleneck>=1.4.2 # Silences pandas performance warnings

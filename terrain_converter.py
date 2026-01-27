@@ -6,12 +6,35 @@ import rasterio
 from rasterio.merge import merge
 from rasterio.mask import mask
 from rasterio.io import MemoryFile
-from shapely.geometry import box, Point
+from shapely.geometry import box
 import geopandas as gpd
 import numpy as np
 import math
 import sys
 import shutil
+import time
+import concurrent.futures
+from tqdm import tqdm
+
+def extract_tile_task(args):
+    """
+    Task function for multiprocessing extraction.
+    args: (zip_path, target_file, temp_dir)
+    Returns: extracted_path
+    """
+    zip_path, target_file, temp_dir = args
+    expected_path = os.path.join(temp_dir, target_file)
+    
+    if os.path.exists(expected_path):
+        return expected_path
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            z.extract(target_file, temp_dir)
+        return expected_path
+    except Exception as e:
+        print(f"Error extracting {zip_path}: {e}")
+        return None
 
 def get_tile_name(lat, lon):
     ns = 'N' if lat >= 0 else 'S'
@@ -35,7 +58,22 @@ def find_tile_zip(tile_name, search_dir):
         
     return files[0]
 
+def format_coord_val(val, is_lat=True):
+    """Format coordinate value to string, preserving decimals if present."""
+    direction = ''
+    if is_lat:
+        direction = 'N' if val >= 0 else 'S'
+    else:
+        direction = 'E' if val >= 0 else 'W'
+    
+    abs_val = abs(val)
+    if abs_val.is_integer():
+        return f"{direction}{int(abs_val)}"
+    else:
+        return f"{direction}{abs_val:.2f}"
+
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description="Convert SRTM terrain data to Shapefile.")
     parser.add_argument("--min_lon", type=float, required=True)
     parser.add_argument("--max_lon", type=float, required=True)
@@ -57,56 +95,87 @@ def main():
     lon_range = range(math.floor(args.min_lon), math.floor(args.max_lon) + 1)
     
     src_files_to_mosaic = []
+    extraction_tasks = []
     
     print(f"Searching for tiles in {earthdata_dir}...")
+    
+    # 1. Search tiles first (Lightweight)
     for lat in lat_range:
         for lon in lon_range:
             tile_name = get_tile_name(lat, lon)
             zip_path = find_tile_zip(tile_name, earthdata_dir)
             if zip_path:
-                print(f"Found tile: {tile_name} -> {zip_path}")
                 try:
                     with zipfile.ZipFile(zip_path, 'r') as z:
                         all_files = z.namelist()
-                        # Find .hgt or .tif (Ignore .num metadata files)
+                        # Find .hgt or .tif
                         candidates = [f for f in all_files if f.endswith(('.hgt', '.tif'))]
                         candidates = [f for f in candidates if not os.path.basename(f).startswith('._')]
                         
-                        # Check for .num files to warn user
                         num_files = [f for f in all_files if f.endswith('.num')]
                         if not candidates and num_files:
-                            print(f"  ERROR: Found metadata file (.num) but NO elevation data (.hgt/.tif) in {zip_path}.")
-                            print("  Please download 'SRTMGL1' (Height) data, not 'SRTMGL1N' (Number/Source) data.")
+                            print(f"  ERROR: Found metadata file (.num) but NO elevation data in {zip_path}.")
                             continue
 
                         if candidates:
                             target_file = candidates[0]
-                            # Extract to temp dir
-                            os.makedirs(temp_dir, exist_ok=True)
-                            
-                            # Check if already extracted
-                            # We need to handle the fact that extract might recreate dirs
-                            # z.extract extracts full path.
-                            extracted_path = z.extract(target_file, temp_dir)
-                            
-                            src_files_to_mosaic.append(extracted_path)
-                            print(f"  Extracted to: {extracted_path}")
+                            # Prepare task for parallel extraction
+                            extraction_tasks.append((zip_path, target_file, temp_dir))
                         else:
-                            print(f"  No valid data files found in zip. Contents: {all_files[:5]}...")
+                            print(f"  No valid data files found in zip: {zip_path}")
                 except Exception as e:
                     print(f"Error reading zip {zip_path}: {e}")
             else:
                 print(f"Warning: Tile {tile_name} not found.")
 
-    if not src_files_to_mosaic:
+    if not extraction_tasks:
         print("No tiles found. Exiting.")
         return
 
-    print(f"Merging {len(src_files_to_mosaic)} tiles...")
+    # Define steps for progress bar
+    steps = [
+        "Extracting Files",
+        "Reading Files",
+        "Merging",
+        "Clipping",
+        "Converting to Points",
+        "Generating Geometry",
+        "Saving Shapefile"
+    ]
+    
+    # Configure tqdm to output to sys.stdout and force flush
+    pbar = tqdm(total=len(steps), desc="Processing", unit="step", 
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                file=sys.stdout)
     
     try:
-        # Open all files
+        # Step 1: Parallel Extraction
+        pbar.set_description("Extracting Files")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            # Map tasks to executor
+            results = list(executor.map(extract_tile_task, extraction_tasks))
+            
+        # Filter valid results
+        src_files_to_mosaic = [r for r in results if r is not None]
+        
+        if not src_files_to_mosaic:
+            print("Extraction failed. No files to process.")
+            pbar.close()
+            return
+            
+        pbar.update(1)
+
+        print(f"\nMerging {len(src_files_to_mosaic)} tiles...")
+        
+        # Step 2: Reading Files
+        pbar.set_description("Reading Files")
         src_datasets = [rasterio.open(f) for f in src_files_to_mosaic]
+        pbar.update(1)
+        
+        # Step 2: Merging
+        pbar.set_description("Merging")
         mosaic, out_trans = merge(src_datasets)
         
         # Close datasets
@@ -121,11 +190,13 @@ def main():
             "width": mosaic.shape[2],
             "transform": out_trans
         })
+        pbar.update(1)
         
+        # Step 3: Clipping
+        pbar.set_description("Clipping")
         # Now Clip to the exact bounding box
         bbox = box(args.min_lon, args.min_lat, args.max_lon, args.max_lat)
         
-        print("Clipping to bounding box...")
         with MemoryFile() as memfile:
             with memfile.open(**out_meta) as dataset:
                 dataset.write(mosaic)
@@ -140,15 +211,16 @@ def main():
             "width": out_image.shape[2],
             "transform": out_transform
         })
+        pbar.update(1)
         
-        # Now convert to Points
-        print("Converting to Points...")
+        # Step 4: Converting to Points
+        pbar.set_description("Converting to Points")
         # out_image is (count, height, width)
         data = out_image[0] # Band 1
         
         # Downsample if needed
         if args.step > 1:
-            print(f"Downsampling with step {args.step}...")
+            tqdm.write(f"Downsampling with step {args.step}...")
             data = data[::args.step, ::args.step]
             rows, cols = np.indices(data.shape)
             rows = rows * args.step
@@ -168,36 +240,52 @@ def main():
         elevs = elevations_flat[valid_mask]
         
         if len(elevs) == 0:
-            print("No valid elevation points found in the area.")
+            tqdm.write("No valid elevation points found in the area.")
+            sys.stdout.flush()
+            pbar.close()
             return
 
-        print(f"Generating {len(elevs)} points...")
+        tqdm.write(f"Generating {len(elevs)} points...")
         if len(elevs) > 1000000:
-            print("Warning: Generating > 1 million points. This may be slow.")
-
+            tqdm.write("Warning: Generating > 1 million points. This may be slow.")
+        sys.stdout.flush()
+        pbar.update(1)
+        
+        # Step 5: Generating Geometry
+        pbar.set_description("Generating Geometry")
         # Vectorized transform
         xs, ys = rasterio.transform.xy(out_transform, rows, cols, offset='center')
         
-        # Creating GeoDataFrame
-        geometry = [Point(x, y) for x, y in zip(xs, ys)]
+        # Creating GeoDataFrame using vectorized operation (much faster)
+        geometry = gpd.points_from_xy(xs, ys)
         
         # Name format
-        name_str = f"N{int(args.min_lat)}E{int(args.min_lon)}"
+        name_str = f"{format_coord_val(args.min_lat, True)}{format_coord_val(args.min_lon, False)}"
         
         gdf = gpd.GeoDataFrame({
             'elevation': elevs,
             'city': name_str
         }, geometry=geometry, crs="EPSG:4326")
+        pbar.update(1)
         
-        # Save
-        folder_name = f"N{int(args.min_lat)}E{int(args.min_lon)}_N{int(args.max_lat)}E{int(args.max_lon)}"
+        # Step 6: Saving
+        pbar.set_description("Saving Shapefile")
+        min_str = f"{format_coord_val(args.min_lat, True)}{format_coord_val(args.min_lon, False)}"
+        max_str = f"{format_coord_val(args.max_lat, True)}{format_coord_val(args.max_lon, False)}"
+        folder_name = f"{min_str}_{max_str}"
+        
         out_dir = os.path.join(output_base_dir, folder_name)
         os.makedirs(out_dir, exist_ok=True)
         
         out_shp = os.path.join(out_dir, "terrain.shp")
-        print(f"Saving to {out_shp}...")
-        gdf.to_file(out_shp)
-        print("Done.")
+        # Use pyogrio engine for faster IO
+        gdf.to_file(out_shp, engine="pyogrio")
+        pbar.update(1)
+        pbar.close()
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        print(f"Done. Total time: {duration:.2f} seconds.")
 
         # Cleanup temp
         if os.path.exists(temp_dir):
