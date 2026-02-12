@@ -1,139 +1,141 @@
 # Terrain Reader Project
 
-这是一个用于将 SRTM 地形数据（.hgt/.tif）转换为 Shapefile (.shp) 格式的工具。本项目包含完整的流程：数据下载指南、地形转换、以及数据验证与可视化。
+[中文](README_zh.md)
 
-## 功能特点
+This tool converts SRTM terrain data (.hgt/.tif) into Shapefile (.shp) format. This project includes a complete workflow: data download guide, terrain conversion, and data verification & visualization.
 
-- **自动搜索**: 自动递归搜索 `earthdata` 目录下的地形数据瓦片。
-- **灵活输入**: 支持通过 `--file` 参数直接指定本地 `.tif` 或 `.hgt` 地形文件，无需依赖自动搜索。
-- **智能筛选**: 优先匹配包含海拔数据的 `.hgt.zip` 文件，自动忽略无用的元数据文件（如 `.num`）。
-- **智能拼接**: 支持跨瓦片（Mosaic）拼接，处理跨越多个地形文件的数据。
-- **性能优化**:
-  - **向量化计算**: 使用 `geopandas.points_from_xy` 替代循环，生成速度提升 10 倍以上。
-  - **I/O 加速**: 集成 `pyogrio` 引擎，实现 Shapefile 的极速写入。
-  - **并行解压**: 采用多进程（Multiprocessing）并行解压瓦片数据，大幅缩短准备时间。
-  - **解压缓存**: 自动检测临时文件，跳过重复解压步骤。
-- **进度可视化**: 集成 `tqdm` 实时进度条，支持步骤显示和预计剩余时间。
-- **跨平台支持**: 完美支持 Windows 和 Linux 环境（路径自动适配，依赖包跨平台）。
-- **范围裁剪**: 根据指定的经纬度范围（Bounding Box）进行精确裁剪。
-- **降采样**: 支持自定义降采样步长（Step），有效控制输出文件大小。
-- **标准格式**: 输出带有 EPSG:4326 坐标系的 Point 类型 Shapefile，包含 `.prj` 投影文件。
-- **数据验证**: 提供 `verify_terrain.py` 脚本，可生成地形热力图并统计海拔极值，快速验证数据质量。
+## Features
 
-## 环境准备
+- **Automatic Search**: Recursively searches for terrain data tiles in the `earthdata` directory.
+- **Flexible Input**: Supports specifying a local `.tif` or `.hgt` terrain file directly via the `--file` parameter, bypassing automatic search.
+- **Smart Filtering**: Prioritizes `.hgt.zip` files (elevation data) and automatically ignores useless metadata files (like `.num`).
+- **Smart Mosaicking**: Supports cross-tile (Mosaic) stitching to handle data spanning multiple terrain files.
+- **Performance Optimization**:
+  - **Vectorized Calculation**: Uses `geopandas.points_from_xy` for >10x speedup in point generation.
+  - **Fast I/O**: Integrated `pyogrio` engine for high-speed Shapefile writing.
+  - **Parallel Decompression**: Uses Multiprocessing for parallel tile extraction.
+  - **Decompression Cache**: Automatically detects temp files to skip redundant unzipping.
+- **Progress Visualization**: Integrated `tqdm` for real-time progress bars with ETA.
+- **Cross-Platform**: Fully compatible with Windows and Linux (path handling, dependencies).
+- **Range Clipping**: Precisely clips data based on a specified latitude/longitude bounding box.
+- **Downsampling**: Supports a custom downsampling step (`Step`) to effectively control output file size.
+- **Standard Format**: Outputs Point type Shapefiles with EPSG:4326 coordinate system, including the `.prj` projection file.
+- **Data Verification**: Provides `verify_terrain.py` script to generate terrain heatmaps and statistical extremes for quick data quality verification.
 
-1. 确保已安装 Python 环境。
-2. 安装项目依赖：
+## Prerequisites
+
+1. Ensure Python is installed.
+2. Install project dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-*(注：本项目依赖 `numpy<2` 以兼容 geopandas)*
+*(Note: This project requires `numpy<2` for compatibility with geopandas)*
 
-## 项目目录结构
+## Project Directory Structure
 
 ```
 terrainreader/
-├── earthdata/          # 存放下载的 SRTM 地形数据 (.zip) 或单文件 (.tif)
+├── earthdata/          # Stores downloaded SRTM terrain data (.zip) or single file (.tif)
 │   ├── N30E120.SRTMGL1.hgt.zip
 │   ├── dem.tif
 │   └── ...
-├── output/             # 存放生成的 Shapefile 和预览图
+├── output/             # Stores generated Shapefiles and preview images
 │   └── N30E120_N32E123/
 │       ├── terrain.shp
 │       ├── terrain_preview.png
 │       └── ...
-├── terrain_converter.py # 核心转换脚本
-├── verify_terrain.py    # 验证与可视化脚本
-├── requirements.txt     # 项目依赖
-└── README.md            # 项目说明文档
+├── terrain_converter.py # Core conversion script
+├── verify_terrain.py    # Verification and visualization script
+├── requirements.txt     # Project dependencies
+└── README.md            # Project documentation
 ```
 
-## 数据获取 (Earthdata 指南)
+## Data Acquisition (Earthdata Guide)
 
-本项目推荐使用 NASA Earthdata 提供的 SRTM GL1 (30米精度) 数据。
+This project recommends using SRTM GL1 (30-meter resolution) data provided by NASA Earthdata.
 
-1.  访问 [NASA Earthdata Search](https://search.earthdata.nasa.gov/search)。
-2.  搜索关键词 **"SRTMGL1"** (SRTM GL1 Global 1 arc second)。
-3.  **筛选范围 (Filter)**:
-    *   点击左上角的矩形工具，在地图上框选你需要的区域（例如上海或青藏高原）。
-    *   或者直接输入坐标范围。
-4.  **下载数据**:
-    *   点击 "Download All"。
-    *   选择 "Direct Download" (直接下载文件)。
-    *   **重要**: 确保下载的文件列表中包含 `.hgt.zip` 文件。千万不要只下载 `.num` (Source Number) 文件，那是数据源编号，不包含海拔信息。
-5.  将下载的 `.zip` 文件放入项目的 `earthdata` 文件夹中（支持子文件夹）。
+1.  Visit [NASA Earthdata Search](https://search.earthdata.nasa.gov/search).
+2.  Search for **"SRTMGL1"** (SRTM GL1 Global 1 arc second).
+3.  **Filter Range**:
+    *   Click the rectangle tool on the top left to select your area of interest on the map (e.g., Shanghai or Tibetan Plateau).
+    *   Or directly input coordinate ranges.
+4.  **Download Data**:
+    *   Click "Download All".
+    *   Select "Direct Download".
+    *   **Important**: Ensure the downloaded file list contains `.hgt.zip` files. Do NOT download only `.num` (Source Number) files, as they are data source IDs and contain no elevation info.
+5.  Place the downloaded `.zip` files into the `earthdata` folder in the project root (subfolders are supported).
 
-## 使用方法
+## Usage
 
-### 1. 地形转换 (Convert)
+### 1. Terrain Conversion (Convert)
 
-运行 `terrain_converter.py` 脚本，并指定经纬度范围：
+Run the `terrain_converter.py` script and specify the latitude/longitude range:
 
 ```bash
-python terrain_converter.py --min_lon <最小经度> --max_lon <最大经度> --min_lat <最小纬度> --max_lat <最大纬度> [--step <降采样步长>]
+python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <min_lat> --max_lat <max_lat> [--step <step>]
 ```
 
-**参数说明**:
-- `--min_lon` / `--max_lon`: 经度范围 (例如: 120.0 到 123.0)
-- `--min_lat` / `--max_lat`: 纬度范围 (例如: 30.0 到 32.0)
-- `--file`: (可选) 指定单个地形文件路径 (例如: `dem.tif`)。支持直接文件名（默认搜索 `earthdata` 目录）或绝对路径。
-- `--type`: (可选) 输出几何类型，默认为 `polygon`。
-  - `polygon`: 生成面要素 (Polygon)，每个点转换为对应的网格方块，适合需要面积覆盖的场景。
-  - `point`: 生成点要素 (Point)，适合大规模数据，文件较小。
-- `--step`: (可选) 降采样步长，默认为 1。
-  - `1`: 保留所有原始数据点 (约30米精度)，文件最大。
-  - `5`: 每5个点取1个 (约150米精度)，推荐用于城市级范围。
-  - `20`: 每20个点取1个 (约600米精度)，推荐用于省/大洲级范围。
+**Parameters**:
+- `--min_lon` / `--max_lon`: Longitude range (e.g., 120.0 to 123.0)
+- `--min_lat` / `--max_lat`: Latitude range (e.g., 30.0 to 32.0)
+- `--file`: (Optional) Path to a single terrain file (e.g., `dem.tif`). Supports filename (defaults to search in `earthdata`) or absolute path.
+- `--type`: (Optional) Output geometry type, default is `polygon`.
+  - `polygon`: Generates Polygon features, converts each point into a grid square, suitable for area coverage.
+  - `point`: Generates Point features, suitable for large datasets, smaller file size.
+- `--step`: (Optional) Downsampling step, default is 1.
+  - `1`: Retain all original data points (approx. 30m precision), largest file size.
+  - `5`: Take 1 point every 5 points (approx. 150m precision), recommended for city-level scale.
+  - `20`: Take 1 point every 20 points (approx. 600m precision), recommended for province/continent scale.
 
-**运行示例 (自动搜索)**:
+**Example Run (Auto Search)**:
 ```bash
 python -u terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
 
-**运行示例 (指定本地文件)**:
+**Example Run (Local File)**:
 ```bash
 python -u terrain_converter.py --file dem.tif --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
-*(提示：使用 `-u` 参数可以禁用输出缓冲，确保进度条实时显示)*
+*(Tip: Use `-u` flag to disable output buffering for real-time progress bars)*
 
-### 2. 数据验证与可视化 (Verify)
+### 2. Data Verification & Visualization (Verify)
 
-运行 `verify_terrain.py` 脚本来检查生成的 Shapefile 是否正确，并生成预览图。
+Run the `verify_terrain.py` script to check if the generated Shapefile is correct and generate a preview image.
 
-**自动验证**: (使用与转换相同的坐标参数)
+**Auto Verification**: (Use the same coordinate parameters as conversion)
 ```bash
 python verify_terrain.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32
 ```
 
-**手动指定文件**:
+**Manual File Selection**:
 ```bash
 python verify_terrain.py --file output/N30E120_N32E123/terrain.shp
 ```
 
-**输出**:
-- 终端会显示海拔统计信息（最低、最高、平均海拔）。
-- 在 Shapefile 同级目录下生成 `terrain_preview.png` 地形热力图。
+**Output**:
+- Terminal displays elevation statistics (min, max, mean elevation).
+- Generates `terrain_preview.png` terrain heatmap in the same directory as the Shapefile.
 
-## 输出结果
+## Output Results
 
-转换后的文件将保存在 `output` 目录下，文件夹名称根据输入的经纬度范围自动生成。
+Converted files are saved in the `output` directory, with folder names automatically generated based on the input latitude/longitude range.
 
-例如：`output/N30E120_N32E123/terrain.shp`
+Example: `output/N30E120_N32E123/terrain.shp`
 
-输出的 Shapefile 包含以下字段：
-- `geometry`: 点坐标 (经度, 纬度)
-- `elevation`: 海拔高度值 (米)
-- `city`: 区域标识名称
+The output Shapefile contains the following fields:
+- `geometry`: Point coordinates (Longitude, Latitude)
+- `elevation`: Elevation value (meters)
+- `city`: Area identifier name
 
-## 常见问题
+## FAQ
 
-1.  **海拔数据显示 0-200 但地形不对？**
-    *   原因：可能下载到了 `.num` (Source) 数据而非 `.hgt` (Elevation) 数据。
-    *   解决：请重新下载 SRTMGL1 数据，确保 zip 包内含 `.hgt` 文件。本项目最新脚本会自动检测并警告此问题。
+1.  **Elevation shows 0-200 but terrain is wrong?**
+    *   Reason: You may have downloaded `.num` (Source) data instead of `.hgt` (Elevation) data.
+    *   Solution: Please re-download SRTMGL1 data, ensuring the zip package contains `.hgt` files. The latest script automatically detects and warns about this issue.
 
-2.  **生成文件过大 (超过 2GB)？**
-    *   原因：Shapefile 格式有 2GB 大小限制。
-    *   解决：增大 `--step` 参数（例如设为 5 或 10）来降低数据密度。
+2.  **Generated file is too large (> 2GB)?**
+    *   Reason: Shapefile format has a 2GB size limit.
+    *   Solution: Increase the `--step` parameter (e.g., set to 5 or 10) to reduce data density.
 
-3.  **缺少 .prj 文件？**
-    *   解决：最新脚本已修复此问题，会自动生成包含 EPSG:4326 (WGS84) 信息的 `.prj` 文件。
+3.  **Missing .prj file?**
+    *   Solution: The latest script fixes this issue and automatically generates a `.prj` file containing EPSG:4326 (WGS84) information.
