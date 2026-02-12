@@ -74,14 +74,20 @@ python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <m
 **Parameters**:
 - `--min_lon` / `--max_lon`: Longitude range (e.g., 120.0 to 123.0)
 - `--min_lat` / `--max_lat`: Latitude range (e.g., 30.0 to 32.0)
+- `--file`: (Optional) Path to a single terrain file (e.g., `dem.tif`). If specified, automatic search in `earthdata` is skipped.
 - `--step`: (Optional) Downsampling step, default is 1.
   - `1`: Retain all original data points (approx. 30m precision), largest file size.
   - `5`: Take 1 point every 5 points (approx. 150m precision), recommended for city-level scale.
   - `20`: Take 1 point every 20 points (approx. 600m precision), recommended for province/continent scale.
 
-**Example Run (Shanghai)**:
+**Example Run (Auto Search)**:
 ```bash
 python -u terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
+```
+
+**Example Run (Local File)**:
+```bash
+python -u terrain_converter.py --file dem.tif --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
 *(Tip: Use `-u` flag to disable output buffering for real-time progress bars)*
 

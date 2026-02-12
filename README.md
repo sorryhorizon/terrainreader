@@ -74,14 +74,20 @@ python terrain_converter.py --min_lon <最小经度> --max_lon <最大经度> --
 **参数说明**:
 - `--min_lon` / `--max_lon`: 经度范围 (例如: 120.0 到 123.0)
 - `--min_lat` / `--max_lat`: 纬度范围 (例如: 30.0 到 32.0)
+- `--file`: (可选) 指定单个地形文件路径 (例如: `dem.tif`)。如果指定此参数，将直接读取该文件并跳过自动搜索。
 - `--step`: (可选) 降采样步长，默认为 1。
   - `1`: 保留所有原始数据点 (约30米精度)，文件最大。
   - `5`: 每5个点取1个 (约150米精度)，推荐用于城市级范围。
   - `20`: 每20个点取1个 (约600米精度)，推荐用于省/大洲级范围。
 
-**运行示例 (上海)**:
+**运行示例 (自动搜索)**:
 ```bash
 python -u terrain_converter.py --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
+```
+
+**运行示例 (指定本地文件)**:
+```bash
+python -u terrain_converter.py --file dem.tif --min_lon 120 --max_lon 123 --min_lat 30 --max_lat 32 --step 5
 ```
 *(提示：使用 `-u` 参数可以禁用输出缓冲，确保进度条实时显示)*
 

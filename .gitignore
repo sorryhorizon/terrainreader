@@ -2,3 +2,5 @@
 earthdata/
 output/
 *.zip
+.venv/
+*.tif

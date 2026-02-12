@@ -80,6 +80,7 @@ def main():
     parser.add_argument("--min_lat", type=float, required=True)
     parser.add_argument("--max_lat", type=float, required=True)
     parser.add_argument("--step", type=int, default=1, help="Downsampling step (default 1)")
+    parser.add_argument("--file", type=str, help="Path to a single input terrain file (e.g. .tif). If provided, automatic search is disabled.")
     
     args = parser.parse_args()
     
@@ -97,40 +98,48 @@ def main():
     src_files_to_mosaic = []
     extraction_tasks = []
     
-    print(f"Searching for tiles in {earthdata_dir}...")
-    
-    # 1. Search tiles first (Lightweight)
-    for lat in lat_range:
-        for lon in lon_range:
-            tile_name = get_tile_name(lat, lon)
-            zip_path = find_tile_zip(tile_name, earthdata_dir)
-            if zip_path:
-                try:
-                    with zipfile.ZipFile(zip_path, 'r') as z:
-                        all_files = z.namelist()
-                        # Find .hgt or .tif
-                        candidates = [f for f in all_files if f.endswith(('.hgt', '.tif'))]
-                        candidates = [f for f in candidates if not os.path.basename(f).startswith('._')]
-                        
-                        num_files = [f for f in all_files if f.endswith('.num')]
-                        if not candidates and num_files:
-                            print(f"  ERROR: Found metadata file (.num) but NO elevation data in {zip_path}.")
-                            continue
+    # Check if direct file input is provided
+    if args.file:
+        print(f"Using input file: {args.file}")
+        if not os.path.exists(args.file):
+            print(f"Error: File {args.file} not found.")
+            return
+        src_files_to_mosaic = [args.file]
+    else:
+        print(f"Searching for tiles in {earthdata_dir}...")
+        
+        # 1. Search tiles first (Lightweight)
+        for lat in lat_range:
+            for lon in lon_range:
+                tile_name = get_tile_name(lat, lon)
+                zip_path = find_tile_zip(tile_name, earthdata_dir)
+                if zip_path:
+                    try:
+                        with zipfile.ZipFile(zip_path, 'r') as z:
+                            all_files = z.namelist()
+                            # Find .hgt or .tif
+                            candidates = [f for f in all_files if f.endswith(('.hgt', '.tif'))]
+                            candidates = [f for f in candidates if not os.path.basename(f).startswith('._')]
+                            
+                            num_files = [f for f in all_files if f.endswith('.num')]
+                            if not candidates and num_files:
+                                print(f"  ERROR: Found metadata file (.num) but NO elevation data in {zip_path}.")
+                                continue
 
-                        if candidates:
-                            target_file = candidates[0]
-                            # Prepare task for parallel extraction
-                            extraction_tasks.append((zip_path, target_file, temp_dir))
-                        else:
-                            print(f"  No valid data files found in zip: {zip_path}")
-                except Exception as e:
-                    print(f"Error reading zip {zip_path}: {e}")
-            else:
-                print(f"Warning: Tile {tile_name} not found.")
+                            if candidates:
+                                target_file = candidates[0]
+                                # Prepare task for parallel extraction
+                                extraction_tasks.append((zip_path, target_file, temp_dir))
+                            else:
+                                print(f"  No valid data files found in zip: {zip_path}")
+                    except Exception as e:
+                        print(f"Error reading zip {zip_path}: {e}")
+                else:
+                    print(f"Warning: Tile {tile_name} not found.")
 
-    if not extraction_tasks:
-        print("No tiles found. Exiting.")
-        return
+        if not extraction_tasks:
+            print("No tiles found. Exiting.")
+            return
 
     # Define steps for progress bar
     steps = [
@@ -149,69 +158,100 @@ def main():
                 file=sys.stdout)
     
     try:
-        # Step 1: Parallel Extraction
-        pbar.set_description("Extracting Files")
-        os.makedirs(temp_dir, exist_ok=True)
-        
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            # Map tasks to executor
-            results = list(executor.map(extract_tile_task, extraction_tasks))
-            
-        # Filter valid results
-        src_files_to_mosaic = [r for r in results if r is not None]
-        
-        if not src_files_to_mosaic:
-            print("Extraction failed. No files to process.")
-            pbar.close()
-            return
-            
-        pbar.update(1)
+        out_image = None
+        out_transform = None
+        nodata_val = -32768 # Default for SRTM
 
-        print(f"\nMerging {len(src_files_to_mosaic)} tiles...")
-        
-        # Step 2: Reading Files
-        pbar.set_description("Reading Files")
-        src_datasets = [rasterio.open(f) for f in src_files_to_mosaic]
-        pbar.update(1)
-        
-        # Step 2: Merging
-        pbar.set_description("Merging")
-        mosaic, out_trans = merge(src_datasets)
-        
-        # Close datasets
-        for ds in src_datasets:
-            ds.close()
+        if args.file:
+             # Skip extraction step
+            pbar.update(1) # Skip "Extracting Files"
             
-        # Create metadata for the mosaic
-        out_meta = src_datasets[0].meta.copy()
-        out_meta.update({
-            "driver": "GTiff",
-            "height": mosaic.shape[1],
-            "width": mosaic.shape[2],
-            "transform": out_trans
-        })
-        pbar.update(1)
-        
-        # Step 3: Clipping
-        pbar.set_description("Clipping")
-        # Now Clip to the exact bounding box
-        bbox = box(args.min_lon, args.min_lat, args.max_lon, args.max_lat)
-        
-        with MemoryFile() as memfile:
-            with memfile.open(**out_meta) as dataset:
-                dataset.write(mosaic)
+            # Reading single file
+            pbar.set_description("Reading & Clipping")
+            try:
+                # Use mask to read only ROI to avoid memory issues with large files
+                bbox = box(args.min_lon, args.min_lat, args.max_lon, args.max_lat)
                 
-                # Now mask
-                out_image, out_transform = mask(dataset, [bbox], crop=True)
-                out_meta = dataset.meta.copy()
+                with rasterio.open(src_files_to_mosaic[0]) as src:
+                    # Check if we need to warn about CRS
+                    if src.crs != "EPSG:4326":
+                        tqdm.write(f"Warning: Input file CRS is {src.crs}, but output will be EPSG:4326.")
+                        tqdm.write("Ensure your input file coordinates match the requested lat/lon range.")
+                    
+                    if src.nodata is not None:
+                        nodata_val = src.nodata
+                        
+                    out_image, out_transform = mask(src, [bbox], crop=True)
+                    # Update progress bars
+                    pbar.update(1) # Reading done
+                    pbar.update(1) # Merging done (skipped)
+                    pbar.update(1) # Clipping done
+                
+            except Exception as e:
+                print(f"Error reading input file: {e}")
+                pbar.close()
+                return
 
-        out_meta.update({
-            "driver": "GTiff",
-            "height": out_image.shape[1],
-            "width": out_image.shape[2],
-            "transform": out_transform
-        })
-        pbar.update(1)
+        else:
+            # Step 1: Parallel Extraction
+            pbar.set_description("Extracting Files")
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                # Map tasks to executor
+                results = list(executor.map(extract_tile_task, extraction_tasks))
+                
+            # Filter valid results
+            src_files_to_mosaic = [r for r in results if r is not None]
+            
+            if not src_files_to_mosaic:
+                print("Extraction failed. No files to process.")
+                pbar.close()
+                return
+                
+            pbar.update(1)
+
+            print(f"\nMerging {len(src_files_to_mosaic)} tiles...")
+            
+            # Step 2: Reading Files
+            pbar.set_description("Reading Files")
+            src_datasets = [rasterio.open(f) for f in src_files_to_mosaic]
+            if src_datasets:
+                if src_datasets[0].nodata is not None:
+                    nodata_val = src_datasets[0].nodata
+            pbar.update(1)
+            
+            # Step 2: Merging
+            pbar.set_description("Merging")
+            mosaic, out_trans = merge(src_datasets)
+            
+            # Close datasets
+            for ds in src_datasets:
+                ds.close()
+            pbar.update(1)
+            
+            # Create metadata for the mosaic
+            out_meta = {
+                "driver": "GTiff",
+                "height": mosaic.shape[1],
+                "width": mosaic.shape[2],
+                "transform": out_trans,
+                "count": mosaic.shape[0],
+                "dtype": mosaic.dtype
+            }
+            
+            # Step 3: Clipping
+            pbar.set_description("Clipping")
+            # Now Clip to the exact bounding box
+            bbox = box(args.min_lon, args.min_lat, args.max_lon, args.max_lat)
+            
+            with MemoryFile() as memfile:
+                with memfile.open(**out_meta) as dataset:
+                    dataset.write(mosaic)
+                    
+                    # Now mask
+                    out_image, out_transform = mask(dataset, [bbox], crop=True)
+            pbar.update(1)
         
         # Step 4: Converting to Points
         pbar.set_description("Converting to Points")
@@ -233,7 +273,7 @@ def main():
         elevations_flat = data.flatten()
         
         # Filter nodata
-        valid_mask = elevations_flat != -32768
+        valid_mask = elevations_flat != nodata_val
         
         rows = rows[valid_mask]
         cols = cols[valid_mask]
