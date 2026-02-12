@@ -5,6 +5,7 @@ This tool converts SRTM terrain data (.hgt/.tif) into Shapefile (.shp) format. T
 ## Features
 
 - **Automatic Search**: Recursively searches for terrain data tiles in the `earthdata` directory.
+- **Flexible Input**: Supports specifying a local `.tif` or `.hgt` terrain file directly via the `--file` parameter, bypassing automatic search.
 - **Smart Filtering**: Prioritizes `.hgt.zip` files (elevation data) and automatically ignores useless metadata files (like `.num`).
 - **Smart Mosaicking**: Supports cross-tile (Mosaic) stitching to handle data spanning multiple terrain files.
 - **Performance Optimization**:
