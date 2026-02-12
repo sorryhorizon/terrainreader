@@ -80,6 +80,7 @@ def main():
     parser.add_argument("--min_lat", type=float, required=True)
     parser.add_argument("--max_lat", type=float, required=True)
     parser.add_argument("--step", type=int, default=1, help="Downsampling step (default 1)")
+    parser.add_argument("--type", choices=['point', 'polygon'], default='polygon', help="Output geometry type: 'polygon' (default) or 'point'.")
     parser.add_argument("--file", type=str, help="Path to a single input terrain file (e.g. .tif). If provided, automatic search is disabled.")
     
     args = parser.parse_args()
@@ -311,8 +312,20 @@ def main():
         # Vectorized transform
         xs, ys = rasterio.transform.xy(out_transform, rows, cols, offset='center')
         
-        # Creating GeoDataFrame using vectorized operation (much faster)
-        geometry = gpd.points_from_xy(xs, ys)
+        if args.type == 'polygon':
+            # Create polygon (square) for each point
+            # Calculate pixel size (scaled by step)
+            pixel_width = out_transform[0] * args.step
+            pixel_height = abs(out_transform[4]) * args.step
+            
+            half_w = pixel_width / 2
+            half_h = pixel_height / 2
+            
+            # Use list comprehension (shapely 2.0+ supports vectorized box, but we keep it compatible)
+            geometry = [box(x - half_w, y - half_h, x + half_w, y + half_h) for x, y in zip(xs, ys)]
+        else:
+            # Creating GeoDataFrame using vectorized operation (much faster)
+            geometry = gpd.points_from_xy(xs, ys)
         
         # Name format
         name_str = f"{format_coord_val(args.min_lat, True)}{format_coord_val(args.min_lon, False)}"

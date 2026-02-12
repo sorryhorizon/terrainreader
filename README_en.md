@@ -77,6 +77,9 @@ python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <m
 - `--min_lon` / `--max_lon`: Longitude range (e.g., 120.0 to 123.0)
 - `--min_lat` / `--max_lat`: Latitude range (e.g., 30.0 to 32.0)
 - `--file`: (Optional) Path to a single terrain file (e.g., `dem.tif`). Supports filename (defaults to search in `earthdata`) or absolute path.
+- `--type`: (Optional) Output geometry type, default is `polygon`.
+  - `polygon`: Generates Polygon features, converts each point into a grid square, suitable for area coverage.
+  - `point`: Generates Point features, suitable for large datasets, smaller file size.
 - `--step`: (Optional) Downsampling step, default is 1.
   - `1`: Retain all original data points (approx. 30m precision), largest file size.
   - `5`: Take 1 point every 5 points (approx. 150m precision), recommended for city-level scale.
