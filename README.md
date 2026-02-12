@@ -33,8 +33,9 @@ pip install -r requirements.txt
 
 ```
 terrainreader/
-├── earthdata/          # 存放下载的 SRTM 地形数据 (.zip)
+├── earthdata/          # 存放下载的 SRTM 地形数据 (.zip) 或单文件 (.tif)
 │   ├── N30E120.SRTMGL1.hgt.zip
+│   ├── dem.tif
 │   └── ...
 ├── output/             # 存放生成的 Shapefile 和预览图
 │   └── N30E120_N32E123/
@@ -75,7 +76,7 @@ python terrain_converter.py --min_lon <最小经度> --max_lon <最大经度> --
 **参数说明**:
 - `--min_lon` / `--max_lon`: 经度范围 (例如: 120.0 到 123.0)
 - `--min_lat` / `--max_lat`: 纬度范围 (例如: 30.0 到 32.0)
-- `--file`: (可选) 指定单个地形文件路径 (例如: `dem.tif`)。如果指定此参数，将直接读取该文件并跳过自动搜索。
+- `--file`: (可选) 指定单个地形文件路径 (例如: `dem.tif`)。支持直接文件名（默认搜索 `earthdata` 目录）或绝对路径。
 - `--step`: (可选) 降采样步长，默认为 1。
   - `1`: 保留所有原始数据点 (约30米精度)，文件最大。
   - `5`: 每5个点取1个 (约150米精度)，推荐用于城市级范围。

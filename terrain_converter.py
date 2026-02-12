@@ -100,11 +100,26 @@ def main():
     
     # Check if direct file input is provided
     if args.file:
-        print(f"Using input file: {args.file}")
-        if not os.path.exists(args.file):
-            print(f"Error: File {args.file} not found.")
+        # Check if file path is absolute or relative
+        if os.path.isabs(args.file):
+            input_file = args.file
+        else:
+            # Check in current directory first, then in earthdata
+            if os.path.exists(args.file):
+                input_file = args.file
+            else:
+                earthdata_path = os.path.join(earthdata_dir, args.file)
+                if os.path.exists(earthdata_path):
+                    input_file = earthdata_path
+                else:
+                    # Fallback to original path for error reporting
+                    input_file = args.file
+
+        print(f"Using input file: {input_file}")
+        if not os.path.exists(input_file):
+            print(f"Error: File {input_file} not found.")
             return
-        src_files_to_mosaic = [args.file]
+        src_files_to_mosaic = [input_file]
     else:
         print(f"Searching for tiles in {earthdata_dir}...")
         

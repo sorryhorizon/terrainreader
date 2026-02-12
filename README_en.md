@@ -33,8 +33,9 @@ pip install -r requirements.txt
 
 ```
 terrainreader/
-├── earthdata/          # Stores downloaded SRTM terrain data (.zip)
+├── earthdata/          # Stores downloaded SRTM terrain data (.zip) or single file (.tif)
 │   ├── N30E120.SRTMGL1.hgt.zip
+│   ├── dem.tif
 │   └── ...
 ├── output/             # Stores generated Shapefiles and preview images
 │   └── N30E120_N32E123/
@@ -75,7 +76,7 @@ python terrain_converter.py --min_lon <min_lon> --max_lon <max_lon> --min_lat <m
 **Parameters**:
 - `--min_lon` / `--max_lon`: Longitude range (e.g., 120.0 to 123.0)
 - `--min_lat` / `--max_lat`: Latitude range (e.g., 30.0 to 32.0)
-- `--file`: (Optional) Path to a single terrain file (e.g., `dem.tif`). If specified, automatic search in `earthdata` is skipped.
+- `--file`: (Optional) Path to a single terrain file (e.g., `dem.tif`). Supports filename (defaults to search in `earthdata`) or absolute path.
 - `--step`: (Optional) Downsampling step, default is 1.
   - `1`: Retain all original data points (approx. 30m precision), largest file size.
   - `5`: Take 1 point every 5 points (approx. 150m precision), recommended for city-level scale.
